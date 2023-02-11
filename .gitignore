@@ -1,2 +1,4 @@
 supervise/
 __pycache__/
+current.log
+service/service
