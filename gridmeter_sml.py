@@ -142,9 +142,9 @@ class DbusSmlSmartmeterService:
                 return power
 
         except Exception as e:
-          logging.error(f"Exception: {str(e)}")
+          logging.error(f"Exception in _getSmlSmartmeterData: {str(e)}")
           print(f"Exception: {str(e)}")
-          return None
+          raise
 
 
     def _signOfLife(self):
@@ -204,6 +204,7 @@ class DbusSmlSmartmeterService:
             self._lastUpdate = time.time()
         except Exception as e:
             logging.critical('Error at %s', '_update', exc_info=e)
+            exit(-2)
 
         # return true, otherwise add_timeout will be removed from GObject - see docs http://library.isr.ist.utl.pt/docs/pygtk2reference/gobject-functions.html#function-gobject--timeout-add
         return True
