@@ -120,9 +120,9 @@ class DbusSmlSmartmeterService:
             while sml_frame is None:
               try:
                 s = self.serial_port.read(100)
-              except serial.serialutil.SerialException as se:
-                print("Port blocked")
-                continue
+              except serial.serialutil.SerialException:
+                print("Port blocked, bailing out")
+                raise
               stream.add(s)
               try:
                 sml_frame = stream.get_frame()
