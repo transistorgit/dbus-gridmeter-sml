@@ -8,6 +8,7 @@ from vedbus import VeDbusService
 import platform
 import logging
 import os
+from os import _exit as os_exit
 import sys
 if sys.version_info.major == 2:
     import gobject
@@ -204,7 +205,7 @@ class DbusSmlSmartmeterService:
             self._lastUpdate = time.time()
         except Exception as e:
             logging.critical('Error at %s', '_update', exc_info=e)
-            exit(-2)
+            os_exit(1)
 
         # return true, otherwise add_timeout will be removed from GObject - see docs http://library.isr.ist.utl.pt/docs/pygtk2reference/gobject-functions.html#function-gobject--timeout-add
         return True
