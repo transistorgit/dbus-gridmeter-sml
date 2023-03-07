@@ -1,6 +1,8 @@
 # dbus-gridmeter-sml
 SML optical readout grid meter driver for victron venus devices
 
+Alpha version, needs more love
+
 Install
 
 * Dateien unter /data/etc/dbus-gridmeter-sml installieren
