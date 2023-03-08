@@ -2,6 +2,7 @@
 from smllib import SmlStreamReader
 from smllib import errors as smlerr
 import serial
+from serial import SerialException
 
 # import normal packages
 from vedbus import VeDbusService
@@ -80,17 +81,16 @@ class DbusSmlSmartmeterService:
         # pause 1000ms before the next request
         gobject.timeout_add(500, self._update)
 
-        # add _signOfLife 'timer' to get feedback in log every 5minutes
-        gobject.timeout_add(self._getSignOfLifeInterval()
-                            * 60*1000, self._signOfLife)
 
     def _getSmartMeterSerial(self):
         # TODO
         return 12345
 
+
     def _get_role_instance(self):
       print("GetRoleInstance called")
       return 'grid', 40
+
 
     def _getConfig(self):
         config = configparser.ConfigParser()
@@ -98,21 +98,16 @@ class DbusSmlSmartmeterService:
                     (os.path.dirname(os.path.realpath(__file__))))
         return config
 
-    def _getSignOfLifeInterval(self):
-        value = self._config['DEFAULT']['SignOfLifeLog']
-
-        if not value:
-            value = 0
-
-        return int(value)
 
     def _getSmartMeterDeviceId(self):
         value = self._config['DEFAULT']['SmlPathSmartMeterId']
         return value
 
+
     def _getSmartMeterOverallConsumption(self):
         value = self._config['DEFAULT']['SmlPathOverallConsumption']
         return value
+
 
     def _getSmlSmartmeterData(self):
         try:
@@ -121,14 +116,14 @@ class DbusSmlSmartmeterService:
             while sml_frame is None:
               try:
                 s = self.serial_port.read(100)
-              except serial.serialutil.SerialException:
-                print("Port blocked, bailing out")
-                raise
+              except SerialException as e:
+                logging.warning(f"_getSmlSmartmeterData: {str(e)}")
+                return
               stream.add(s)
               try:
                 sml_frame = stream.get_frame()
               except smlerr.CrcError as ce:
-                print("CRC Error")
+                logging.warning(f"_getSmlSmartmeterData: {str(ce)}")
                 continue
 
             # Add more bytes, once it's a complete frame the SmlStreamReader will
@@ -144,16 +139,7 @@ class DbusSmlSmartmeterService:
 
         except Exception as e:
           logging.error(f"Exception in _getSmlSmartmeterData: {str(e)}")
-          print(f"Exception: {str(e)}")
-          raise
 
-
-    def _signOfLife(self):
-        logging.info("--- Start: sign of life ---")
-        logging.info("Last _update() call: %s" % (self._lastUpdate))
-        logging.info("Last '/Ac/Power': %s" % (self._dbusservice['/Ac/Power']))
-        logging.info("--- End: sign of life ---")
-        return True
 
     def _update(self):
         try:
@@ -210,11 +196,10 @@ class DbusSmlSmartmeterService:
         # return true, otherwise add_timeout will be removed from GObject - see docs http://library.isr.ist.utl.pt/docs/pygtk2reference/gobject-functions.html#function-gobject--timeout-add
         return True
 
+
     def _handlechangedvalue(self, path, value):
         logging.debug("someone else updated %s to %s" % (path, value))
         return True  # accept the change
-
-
     
 
 def main():
