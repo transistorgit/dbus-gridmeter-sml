@@ -18,6 +18,8 @@ else:
 import sys
 import time
 import configparser  # for config/ini file
+import traceback
+
 
 # our own packages from victron
 sys.path.insert(1, os.path.join(os.path.dirname(__file__),
@@ -30,7 +32,7 @@ class DbusSmlSmartmeterService:
         self._paths = paths
 
         self._config = self._getConfig()
-        self.serial_port = serial.Serial(port, 9600, timeout=.3)
+        self.serial_port = serial.Serial(port, 9600, timeout=.1)
         if not self.serial_port.is_open:
             logging.error(f"{servicename} /DeviceInstance = {deviceinstance} Can't open serial port {port}")
             exit(1)
@@ -41,21 +43,21 @@ class DbusSmlSmartmeterService:
         # Create the management objects, as specified in the ccgx dbus-api document
         self._dbusservice.add_path('/Mgmt/ProcessName', __file__)
         self._dbusservice.add_path(
-            '/Mgmt/ProcessVersion', 'Unkown version, and running on Python ' + platform.python_version())
+            '/Mgmt/ProcessVersion', 'Unknown version, and running on Python ' + platform.python_version())
         self._dbusservice.add_path('/Mgmt/Connection', connection)
 
         # Create the mandatory objects
         self._dbusservice.add_path('/DeviceInstance', deviceinstance)
         #self._dbusservice.add_path('/ProductId', 16) # value used in ac_sensor_bridge.cpp of dbus-cgwacs
         # self._dbusservice.add_path('/ProductId', 0xFFFF) # id assigned by Victron Support from SDM630v2.py
-        # found on https://www.sascha-curth.de/projekte/005_Color_Control_GX.html#experiment - should be an ET340 Engerie Meter
+        # found on https://www.sascha-curth.de/projekte/005_Color_Control_GX.html#experiment - should be an ET340 Energy Meter
         self._dbusservice.add_path('/ProductId', 45069)
-        # found on https://www.sascha-curth.de/projekte/005_Color_Control_GX.html#experiment - should be an ET340 Engerie Meter
+        # found on https://www.sascha-curth.de/projekte/005_Color_Control_GX.html#experiment - should be an ET340 Energy Meter
         self._dbusservice.add_path('/DeviceType', 345)
         self._dbusservice.add_path('/ProductName', productname)
         self._dbusservice.add_path('/CustomName', productname)
         self._dbusservice.add_path('/Latency', None)
-        self._dbusservice.add_path('/FirmwareVersion', 0.1)
+        self._dbusservice.add_path('/FirmwareVersion', 0.2)
         self._dbusservice.add_path('/HardwareVersion', 0)
         self._dbusservice.add_path('/Connected', 1)
         self._dbusservice.add_path('/Role', 'grid')
@@ -111,42 +113,64 @@ class DbusSmlSmartmeterService:
 
     def _getSmlSmartmeterData(self):
         try:
+            start = time.time()
             sml_frame = None
             stream = SmlStreamReader()
+
             while sml_frame is None:
               try:
-                s = self.serial_port.read(100)
+                toread = self.serial_port.inWaiting()
+                s = self.serial_port.read(toread)
               except SerialException as e:
-                logging.warning(f"_getSmlSmartmeterData: {str(e)}")
-                return
+                logging.warning(traceback.format_exc())
+                return None
+            
               stream.add(s)
               try:
                 sml_frame = stream.get_frame()
+                if sml_frame is None:
+                   time.sleep(0.02)
+                
               except smlerr.CrcError as ce:
-                logging.warning(f"_getSmlSmartmeterData: {str(ce)}")
+                logging.info("CRC Error")
                 continue
+              
+              #we should get 1 msg per second, but IR interface is unreliable
+              if time.time()-start > 3:
+                 logging.info("Smartmeter IR timeout")
+                 return None
 
             # Add more bytes, once it's a complete frame the SmlStreamReader will
             # return the frame instead of None
+
+            # return all values but slower
+            #parsed_msgs = sml_frame.parse_frame()
+            #for msg in parsed_msgs:
+                ## prints a nice overview over the received values
+                #logging.warning(msg.format_msg())
 
             obis_values = sml_frame.get_obis()
 
             for list_entry in obis_values:
               if '1-0:16.7.0' in list_entry.obis.obis_code:
                 power = list_entry.value
-                #print(f"Wirkleistung: {power}W")
+                #print(f"active power: {power}W")
                 return power
 
         except Exception as e:
           logging.error(f"Exception in _getSmlSmartmeterData: {str(e)}")
 
 
+
     def _update(self):
         try:
-            # get data from Senec
+            # get data from smartmeter
             meter_data = self._getSmlSmartmeterData() #currently only power
 
-            # send data to DBus
+            if meter_data is None:
+               return True
+
+            # send data to DBus, fake all the values that we not have to make victron happy (didn't test if this is neccessary)
             total_value = meter_data
             phase_1 = meter_data/3 
             phase_2 = meter_data/3
@@ -173,13 +197,6 @@ class DbusSmlSmartmeterService:
             ##self._dbusservice['/Ac/L1/Energy/Forward'] = (meter_data['emeters'][0]['total']/1000)
             self._dbusservice['/Ac/Energy/Forward'] = grid_bought
             self._dbusservice['/Ac/Energy/Reverse'] = grid_sold
-
-            # logging
-            ##logging.info("House Consumption (/Ac/Power): %s" % (self._dbusservice['/Ac/Power']))
-            #logging.info("L1: %s L2: %s L3: %s" % (self._dbusservice['/Ac/L1/Power'],self._dbusservice['/Ac/L2/Power'],self._dbusservice['/Ac/L3/Power']))
-            ##logging.debug("House Forward (/Ac/Energy/Forward): %s" % (self._dbusservice['/Ac/Energy/Forward']))
-            ##logging.debug("House Reverse (/Ac/Energy/Revers): %s" % (self._dbusservice['/Ac/Energy/Reverse']))
-            # logging.debug("---");
 
             # increment UpdateIndex - to show that new data is available
             index = self._dbusservice['/UpdateIndex'] + 1  # increment index
