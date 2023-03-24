@@ -2,6 +2,7 @@
 SML optical readout grid meter driver for victron venus devices
 
 Alpha version, use by own risk
+REMINDER add credits for the source repo that I forked... have to find out which it was :-(
 
 ## prerequisites
 * install pip:
