@@ -5,7 +5,7 @@ set -x
 #ln -s /data/etc/gridmeter_sml/ /opt/victronenergy/
 #ln -s /data/etc/gridmeter_sml/service /opt/victronenergy/service-templates/gridmeter_sml
 
-DRIVERNAME=gridmeter_sml
+DRIVERNAME=dbus-gridmeter_sml
 
 #install
 rm -rf /opt/victronenergy/service/$DRIVERNAME
