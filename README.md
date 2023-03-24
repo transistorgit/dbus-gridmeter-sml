@@ -2,7 +2,7 @@
 SML optical readout grid meter driver for victron venus devices
 
 Alpha version, use by own risk
-REMINDER add credits for the source repo that I forked... have to find out which it was :-(
+https://github.com/timostark/venus.dbus-iobroker-smartmeter was taken as comfortable starting point, thank you for the fish.
 
 ## prerequisites
 * install pip:
