@@ -4,6 +4,8 @@ SML optical readout grid meter driver for victron venus devices
 Alpha version, use by own risk
 https://github.com/timostark/venus.dbus-iobroker-smartmeter was taken as comfortable starting point, thank you for the fish.
 
+This driver makes it possible to connect an optical smart meter reading head like [this at Amazon](https://www.amazon.de/Hichi-Lesekopf-Stromz%C3%A4hler-optisch-auslesen/dp/B0BTC8RSKL/ref=sr_1_3) to an Raspi with Venus OS and let it's ESS control the Multiplus for zero feed in.
+
 ## prerequisites
 * install pip:
    * opkg update
