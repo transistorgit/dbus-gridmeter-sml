@@ -30,6 +30,7 @@ class DbusSmlSmartmeterService:
     def __init__(self, port, servicename, deviceinstance, paths, productname='Smartmeter SML Reader', connection='Smartmeter eHz SML service'):
         self._dbusservice = VeDbusService("{}.sml_{:02d}".format(servicename, deviceinstance))
         self._paths = paths
+        self.error_counter = 0
 
         self._config = self._getConfig()
         self.serial_port = serial.Serial(port, 9600, timeout=.1)
@@ -80,7 +81,7 @@ class DbusSmlSmartmeterService:
         self._lastUpdate = 0
 
         # add _update function 'timer'
-        # pause 1000ms before the next request
+        # pause 500ms before the next request
         gobject.timeout_add(500, self._update)
 
 
@@ -168,7 +169,28 @@ class DbusSmlSmartmeterService:
             meter_data = self._getSmlSmartmeterData() #currently only power
 
             if meter_data is None:
-               return True
+              self._dbusservice['/Ac/Power'] = None
+              self._dbusservice['/Ac/L1/Voltage'] = None
+              self._dbusservice['/Ac/L2/Voltage'] = None
+              self._dbusservice['/Ac/L3/Voltage'] = None
+              self._dbusservice['/Ac/L1/Current'] = None
+              self._dbusservice['/Ac/L2/Current'] = None
+              self._dbusservice['/Ac/L3/Current'] = None
+              self._dbusservice['/Ac/L1/Power'] = None
+              self._dbusservice['/Ac/L2/Power'] = None
+              self._dbusservice['/Ac/L3/Power'] = None
+              self._dbusservice['/Ac/Current'] = None
+              self._dbusservice['/Ac/Voltage'] = None
+              self._dbusservice['/Ac/Energy/Forward'] = None
+              self._dbusservice['/Ac/Energy/Reverse'] = None
+
+              #exit on continuous failure - probably due to port probing 
+              if self.error_counter > 2:
+                sys.exit(1)
+              self.error_counter += 1
+              return True
+
+            self.error_counter = 0             
 
             # send data to DBus, fake all the values that we not have to make victron happy (didn't test if this is neccessary)
             total_value = meter_data
