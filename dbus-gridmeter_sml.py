@@ -9,7 +9,6 @@ from vedbus import VeDbusService
 import platform
 import logging
 import os
-from os import _exit as os_exit
 import sys
 if sys.version_info.major == 2:
     import gobject
@@ -36,7 +35,7 @@ class DbusSmlSmartmeterService:
         self.serial_port = serial.Serial(port, 9600, timeout=1)
         if not self.serial_port.is_open:
             logging.error(f"{servicename} /DeviceInstance = {deviceinstance} Can't open serial port {port}")
-            exit(1)
+            sys.exit(1)
 
         logging.debug("%s /DeviceInstance = %d" %
                       (servicename, deviceinstance))
@@ -44,7 +43,7 @@ class DbusSmlSmartmeterService:
         sm_serial = self._getSmartMeterSerial()
         if sm_serial is None:
             logging.error(f"{servicename} /DeviceInstance = {deviceinstance} Couldn't read device ID, is a SML device attached?")
-            exit(1)
+            sys.exit(1)
 
         # Create the management objects, as specified in the ccgx dbus-api document
         self._dbusservice.add_path('/Mgmt/ProcessName', __file__)
@@ -163,7 +162,10 @@ class DbusSmlSmartmeterService:
                   if '129-129:199.130.3' in list_entry.obis.obis_code:
                     mfg = list_entry.value
                   if '1-0:0.0.9' in list_entry.obis.obis_code:
-                    serialno = list_entry.value[-8:]
+                    try:
+                      serialno = int(list_entry.value[-8:],16)
+                    except ValueError:
+                      serialno = list_entry.value
 
             for list_entry in obis_values:
               #logging.info('%s %s' % (list_entry.obis.obis_code, list_entry.value))
@@ -245,7 +247,7 @@ class DbusSmlSmartmeterService:
             self._lastUpdate = time.time()
         except Exception as e:
             logging.critical('Error at %s', '_update', exc_info=e)
-            os_exit(1)
+            sys.exit(1)
 
         # return true, otherwise add_timeout will be removed from GObject - see docs http://library.isr.ist.utl.pt/docs/pygtk2reference/gobject-functions.html#function-gobject--timeout-add
         return True
@@ -274,7 +276,7 @@ def main():
             port = sys.argv[1]
         else:
             logging.error("Error: no port given")
-            exit(-1)
+            sys.exit(-1)
 
         from dbus.mainloop.glib import DBusGMainLoop
         # Have a mainloop, so we can send/receive asynchronous calls to and from dbus
