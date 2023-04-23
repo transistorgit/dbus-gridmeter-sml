@@ -62,7 +62,7 @@ class DbusSmlSmartmeterService:
         self._dbusservice.add_path('/ProductName', productname)
         self._dbusservice.add_path('/CustomName', productname)
         self._dbusservice.add_path('/Latency', None)
-        self._dbusservice.add_path('/FirmwareVersion', 0.2)
+        self._dbusservice.add_path('/FirmwareVersion', 0.3)
         self._dbusservice.add_path('/HardwareVersion', 0)
         self._dbusservice.add_path('/Connected', 1)
         self._dbusservice.add_path('/Role', 'grid')
