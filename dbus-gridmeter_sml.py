@@ -9,7 +9,6 @@ from vedbus import VeDbusService
 import platform
 import logging
 import os
-from os import _exit as os_exit
 import sys
 if sys.version_info.major == 2:
     import gobject
@@ -27,25 +26,30 @@ sys.path.insert(1, os.path.join(os.path.dirname(__file__),
 
 
 class DbusSmlSmartmeterService:
-    def __init__(self, port, servicename, deviceinstance, paths, productname='Smartmeter SML Reader', connection='Smartmeter eHz SML service'):
+    def __init__(self, port, servicename, deviceinstance, paths, productname='Smartmeter SML Reader', connection='SML service'):
         self._dbusservice = VeDbusService("{}.sml_{:02d}".format(servicename, deviceinstance))
         self._paths = paths
         self.error_counter = 0
 
         self._config = self._getConfig()
-        self.serial_port = serial.Serial(port, 9600, timeout=.1)
+        self.serial_port = serial.Serial(port, 9600, timeout=1)
         if not self.serial_port.is_open:
             logging.error(f"{servicename} /DeviceInstance = {deviceinstance} Can't open serial port {port}")
-            exit(1)
+            sys.exit(1)
 
         logging.debug("%s /DeviceInstance = %d" %
                       (servicename, deviceinstance))
+
+        sm_serial = self._getSmartMeterSerial()
+        if sm_serial is None:
+            logging.error(f"{servicename} /DeviceInstance = {deviceinstance} Couldn't read device ID, is a SML device attached?")
+            sys.exit(1)
 
         # Create the management objects, as specified in the ccgx dbus-api document
         self._dbusservice.add_path('/Mgmt/ProcessName', __file__)
         self._dbusservice.add_path(
             '/Mgmt/ProcessVersion', 'Unknown version, and running on Python ' + platform.python_version())
-        self._dbusservice.add_path('/Mgmt/Connection', connection)
+        self._dbusservice.add_path('/Mgmt/Connection', '%s on %s' % (connection, port))
 
         # Create the mandatory objects
         self._dbusservice.add_path('/DeviceInstance', deviceinstance)
@@ -58,7 +62,7 @@ class DbusSmlSmartmeterService:
         self._dbusservice.add_path('/ProductName', productname)
         self._dbusservice.add_path('/CustomName', productname)
         self._dbusservice.add_path('/Latency', None)
-        self._dbusservice.add_path('/FirmwareVersion', 0.2)
+        self._dbusservice.add_path('/FirmwareVersion', 0.3)
         self._dbusservice.add_path('/HardwareVersion', 0)
         self._dbusservice.add_path('/Connected', 1)
         self._dbusservice.add_path('/Role', 'grid')
@@ -69,7 +73,7 @@ class DbusSmlSmartmeterService:
 
         # normaly only needed for pvinverter
         self._dbusservice.add_path('/Position', 0)
-        self._dbusservice.add_path('/Serial', self._getSmartMeterSerial())
+        self._dbusservice.add_path('/Serial', sm_serial)
         self._dbusservice.add_path('/UpdateIndex', 0)
 
         # add path values to dbus
@@ -86,13 +90,15 @@ class DbusSmlSmartmeterService:
 
 
     def _getSmartMeterSerial(self):
-        # TODO
-        return 12345
+        meter_data = self._getSmlSmartmeterData(True)
+        if meter_data is None or not meter_data:
+            return None
+        return "%s %s" % (meter_data['mfg'],meter_data['serial'])
 
 
     def _get_role_instance(self):
-      print("GetRoleInstance called")
-      return 'grid', 40
+        print("GetRoleInstance called")
+        return 'grid', 40
 
 
     def _getConfig(self):
@@ -112,51 +118,63 @@ class DbusSmlSmartmeterService:
         return value
 
 
-    def _getSmlSmartmeterData(self):
+    def _getSmlSmartmeterData(self, parse = False):
         try:
             start = time.time()
             sml_frame = None
             stream = SmlStreamReader()
 
             while sml_frame is None:
+              # we should get 1 msg per second, but sometimes it takes longer
+              if time.time()-start > 6:
+                logging.info("Smartmeter IR timeout")
+                return None
               try:
                 toread = self.serial_port.inWaiting()
+                if toread < 1:
+                  time.sleep(0.02)
+                  continue
                 s = self.serial_port.read(toread)
               except SerialException as e:
                 logging.warning(traceback.format_exc())
                 return None
-            
+
+              # Add more bytes, once it's a complete frame the SmlStreamReader will
+              # return the frame instead of None
               stream.add(s)
               try:
                 sml_frame = stream.get_frame()
                 if sml_frame is None:
-                   time.sleep(0.02)
-                
+                   continue
+
               except smlerr.CrcError as ce:
                 logging.info("CRC Error")
                 continue
-              
-              #we should get 1 msg per second, but IR interface is unreliable
-              if time.time()-start > 3:
-                 logging.info("Smartmeter IR timeout")
-                 return None
 
-            # Add more bytes, once it's a complete frame the SmlStreamReader will
-            # return the frame instead of None
-
-            # return all values but slower
-            #parsed_msgs = sml_frame.parse_frame()
-            #for msg in parsed_msgs:
-                ## prints a nice overview over the received values
-                #logging.warning(msg.format_msg())
-
+            # parse values
             obis_values = sml_frame.get_obis()
+            mfg = ''
+            serialno = ''
+            if parse:
+              for msg in sml_frame.parse_frame():
+                #logging.info(msg.format_msg())
+                for list_entry in getattr(msg.message_body, 'val_list', []):
+                  if '129-129:199.130.3' in list_entry.obis.obis_code:
+                    mfg = list_entry.value
+                  if '1-0:0.0.9' in list_entry.obis.obis_code:
+                    try:
+                      serialno = int(list_entry.value[-8:],16)
+                    except ValueError:
+                      serialno = list_entry.value
 
             for list_entry in obis_values:
+              #logging.info('%s %s' % (list_entry.obis.obis_code, list_entry.value))
               if '1-0:16.7.0' in list_entry.obis.obis_code:
-                power = list_entry.value
-                #print(f"active power: {power}W")
-                return power
+                power = float(list_entry.value)
+              if '1-0:1.8.0' in list_entry.obis.obis_code:
+                total = float(list_entry.value) * (10**list_entry.scaler)
+
+            return { 'power': power, 'total': total, 'mfg': mfg, 'serial': serialno }
 
         except Exception as e:
           logging.error(f"Exception in _getSmlSmartmeterData: {str(e)}")
@@ -166,39 +184,39 @@ class DbusSmlSmartmeterService:
     def _update(self):
         try:
             # get data from smartmeter
-            meter_data = self._getSmlSmartmeterData() #currently only power
+            meter_data = self._getSmlSmartmeterData()
 
-            if meter_data is None:
-              self._dbusservice['/Ac/Power'] = None
-              self._dbusservice['/Ac/L1/Voltage'] = None
-              self._dbusservice['/Ac/L2/Voltage'] = None
-              self._dbusservice['/Ac/L3/Voltage'] = None
-              self._dbusservice['/Ac/L1/Current'] = None
-              self._dbusservice['/Ac/L2/Current'] = None
-              self._dbusservice['/Ac/L3/Current'] = None
-              self._dbusservice['/Ac/L1/Power'] = None
-              self._dbusservice['/Ac/L2/Power'] = None
-              self._dbusservice['/Ac/L3/Power'] = None
-              self._dbusservice['/Ac/Current'] = None
-              self._dbusservice['/Ac/Voltage'] = None
-              self._dbusservice['/Ac/Energy/Forward'] = None
-              self._dbusservice['/Ac/Energy/Reverse'] = None
-
-              #exit on continuous failure - probably due to port probing 
-              if self.error_counter > 2:
+            if meter_data is None or not meter_data:
+              # exit on continuous failure - probably due to port probing
+              if self.error_counter > 4:
+                self._dbusservice['/Ac/Power'] = None
+                self._dbusservice['/Ac/L1/Voltage'] = None
+                self._dbusservice['/Ac/L2/Voltage'] = None
+                self._dbusservice['/Ac/L3/Voltage'] = None
+                self._dbusservice['/Ac/L1/Current'] = None
+                self._dbusservice['/Ac/L2/Current'] = None
+                self._dbusservice['/Ac/L3/Current'] = None
+                self._dbusservice['/Ac/L1/Power'] = None
+                self._dbusservice['/Ac/L2/Power'] = None
+                self._dbusservice['/Ac/L3/Power'] = None
+                self._dbusservice['/Ac/Current'] = None
+                self._dbusservice['/Ac/Voltage'] = None
+                self._dbusservice['/Ac/Energy/Forward'] = None
+                self._dbusservice['/Ac/Energy/Reverse'] = None
                 sys.exit(1)
               self.error_counter += 1
               return True
 
-            self.error_counter = 0             
+            self.error_counter = 0
+            #logging.info('meter_data %s' % meter_data)
 
-            # send data to DBus, fake all the values that we not have to make victron happy (didn't test if this is neccessary)
-            total_value = meter_data
-            phase_1 = meter_data/3 
-            phase_2 = meter_data/3
-            phase_3 = meter_data/3
-            grid_sold = 0
-            grid_bought = 0
+            # send data to DBus, fake all the values that we not have to make victron happy
+            total_value = meter_data['power']
+            phase_1 = total_value/3
+            phase_2 = total_value/3
+            phase_3 = total_value/3
+            grid_sold =  0
+            grid_bought = meter_data['total']/1000
             voltage = 230
 
             # positive: consumption, negative: feed into grid
@@ -214,9 +232,8 @@ class DbusSmlSmartmeterService:
             self._dbusservice['/Ac/L3/Power'] = phase_3
 
             self._dbusservice['/Ac/Current'] = total_value / voltage
-            self._dbusservice['/Ac/Voltage'] = phase_3
+            self._dbusservice['/Ac/Voltage'] = voltage
 
-            ##self._dbusservice['/Ac/L1/Energy/Forward'] = (meter_data['emeters'][0]['total']/1000)
             self._dbusservice['/Ac/Energy/Forward'] = grid_bought
             self._dbusservice['/Ac/Energy/Reverse'] = grid_sold
 
@@ -230,7 +247,7 @@ class DbusSmlSmartmeterService:
             self._lastUpdate = time.time()
         except Exception as e:
             logging.critical('Error at %s', '_update', exc_info=e)
-            os_exit(1)
+            sys.exit(1)
 
         # return true, otherwise add_timeout will be removed from GObject - see docs http://library.isr.ist.utl.pt/docs/pygtk2reference/gobject-functions.html#function-gobject--timeout-add
         return True
@@ -239,7 +256,7 @@ class DbusSmlSmartmeterService:
     def _handlechangedvalue(self, path, value):
         logging.debug("someone else updated %s to %s" % (path, value))
         return True  # accept the change
-    
+
 
 def main():
     # configure logging
@@ -259,7 +276,7 @@ def main():
             port = sys.argv[1]
         else:
             logging.error("Error: no port given")
-            exit(-1)
+            sys.exit(-1)
 
         from dbus.mainloop.glib import DBusGMainLoop
         # Have a mainloop, so we can send/receive asynchronous calls to and from dbus
@@ -278,29 +295,23 @@ def main():
             deviceinstance=40,
             paths={
                 # energy bought from the grid
-                '/Ac/Energy/Forward': {'initial': 0, 'textformat': _kwh},
+                '/Ac/Energy/Forward': {'initial': None, 'textformat': _kwh},
                 # energy sold to the grid
-                '/Ac/Energy/Reverse': {'initial': 0, 'textformat': _kwh},
+                '/Ac/Energy/Reverse': {'initial': None, 'textformat': _kwh},
                 '/Ac/Power': {'initial': 0, 'textformat': _w},
 
                 '/Ac/Current': {'initial': 0, 'textformat': _a},
-                '/Ac/Voltage': {'initial': 0, 'textformat': _v},
+                '/Ac/Voltage': {'initial': 230, 'textformat': _v},
 
-                '/Ac/L1/Voltage': {'initial': 0, 'textformat': _v},
-                '/Ac/L2/Voltage': {'initial': 0, 'textformat': _v},
-                '/Ac/L3/Voltage': {'initial': 0, 'textformat': _v},
+                '/Ac/L1/Voltage': {'initial': 230, 'textformat': _v},
+                '/Ac/L2/Voltage': {'initial': 230, 'textformat': _v},
+                '/Ac/L3/Voltage': {'initial': 230, 'textformat': _v},
                 '/Ac/L1/Current': {'initial': 0, 'textformat': _a},
                 '/Ac/L2/Current': {'initial': 0, 'textformat': _a},
                 '/Ac/L3/Current': {'initial': 0, 'textformat': _a},
                 '/Ac/L1/Power': {'initial': 0, 'textformat': _w},
                 '/Ac/L2/Power': {'initial': 0, 'textformat': _w},
                 '/Ac/L3/Power': {'initial': 0, 'textformat': _w},
-                '/Ac/L1/Energy/Forward': {'initial': 0, 'textformat': _kwh},
-                '/Ac/L2/Energy/Forward': {'initial': 0, 'textformat': _kwh},
-                '/Ac/L3/Energy/Forward': {'initial': 0, 'textformat': _kwh},
-                '/Ac/L1/Energy/Reverse': {'initial': 0, 'textformat': _kwh},
-                '/Ac/L2/Energy/Reverse': {'initial': 0, 'textformat': _kwh},
-                '/Ac/L3/Energy/Reverse': {'initial': 0, 'textformat': _kwh},
             })
 
         logging.info(
