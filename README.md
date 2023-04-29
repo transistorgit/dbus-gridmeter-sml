@@ -15,10 +15,16 @@ This driver makes it possible to connect an optical smart meter reading head lik
 ## Install
 * copy or clone files into /data/etc/dbus-gridmeter_sml
 * run install.sh
-* add link in /data/conf/serial-starter.d to link the service name you choose in serial-starter.rules to the service folder. Example:
+* add link in /data/conf/serial-starter.d/xy.conf to link the service name you choose in serial-starter.rules to the service folder. Example:
+  if there is no file, create a new one and insert:
+    service gridmeter dbus-gridmeter_sml
+    alias default gridmeter
 
-    alias default gridmeter_sml
-    service gridmeter_sml dbus-gridmeter_sml
+  if there is one already, add the service line:
+    service gridmeter       dbus-gridmeter_sml
+  and extend the alias default line like so:
+    alias default gps:vedirect:sbattery:gridmeter
+
 
 * now dbus-gridmeter-sml should be started when you plug in the usb adapter and smartmeter data can be parsed in 10s or less
 * it is recommended to move the entry in /data/rc.local up to be the first entry, so that on reboot the driver is called befor a serialbattery driver grabs the port. serialbattery will misinterprete a SML meter for some erratic battery. Also add a "sleep 1" to give it more time to run
