@@ -320,6 +320,7 @@ def main():
         mainloop.run()
     except Exception as e:
         logging.critical('Error at %s', 'main', exc_info=e)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
