@@ -14,6 +14,7 @@ if sys.version_info.major == 2:
     import gobject
 else:
     from gi.repository import GLib as gobject
+import threading
 import sys
 import time
 import configparser  # for config/ini file
@@ -84,10 +85,8 @@ class DbusSmlSmartmeterService:
         # last update
         self._lastUpdate = 0
 
-        # add _update function 'timer'
-        # pause 500ms before the next request
-        gobject.timeout_add(500, self._update)
-
+        # start reading serial port continously
+        threading.Thread(target=lambda: self._loop_update).start()
 
     def _getSmartMeterSerial(self):
         meter_data = self._getSmlSmartmeterData(True)
@@ -179,6 +178,11 @@ class DbusSmlSmartmeterService:
         except Exception as e:
           logging.error(f"Exception in _getSmlSmartmeterData: {str(e)}")
 
+
+
+    def _loop_update(self):
+        while True:
+            self._update()
 
 
     def _update(self):
