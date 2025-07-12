@@ -5,7 +5,6 @@ import serial
 from serial import SerialException
 
 # import normal packages
-from vedbus import VeDbusService
 import platform
 import logging
 import os
@@ -19,15 +18,13 @@ import time
 import configparser  # for config/ini file
 import traceback
 
-
 # our own packages from victron
-sys.path.insert(1, os.path.join(os.path.dirname(__file__),
-                '/opt/victronenergy/dbus-systemcalc-py/ext/velib_python'))
-
+sys.path.insert(1, os.path.join(os.path.dirname(__file__),'/opt/victronenergy/dbus-systemcalc-py/ext/velib_python'))
+from vedbus import VeDbusService
 
 class DbusSmlSmartmeterService:
     def __init__(self, port, servicename, deviceinstance, paths, productname='Smartmeter SML Reader', connection='SML service'):
-        self._dbusservice = VeDbusService("{}.sml_{:02d}".format(servicename, deviceinstance))
+        self._dbusservice = VeDbusService(f"{servicename}.sml_{deviceinstance:02d}", register=False)
         self._paths = paths
         self.error_counter = 0
 
@@ -61,7 +58,6 @@ class DbusSmlSmartmeterService:
         self._dbusservice.add_path('/DeviceType', 345)
         self._dbusservice.add_path('/ProductName', productname)
         self._dbusservice.add_path('/CustomName', productname)
-        self._dbusservice.add_path('/Latency', None)
         self._dbusservice.add_path('/FirmwareVersion', 0.3)
         self._dbusservice.add_path('/HardwareVersion', 0)
         self._dbusservice.add_path('/Connected', 1)
@@ -80,6 +76,9 @@ class DbusSmlSmartmeterService:
         for path, settings in self._paths.items():
             self._dbusservice.add_path(
                 path, settings['initial'], gettextcallback=settings['textformat'], writeable=True, onchangecallback=self._handlechangedvalue)
+
+        self._dbusservice.register()
+        self._dbusservice["/Connected"] = 1
 
         # last update
         self._lastUpdate = 0
@@ -242,6 +241,8 @@ class DbusSmlSmartmeterService:
             if index > 255:   # maximum value of the index
                 index = 0       # overflow from 255 to 0
             self._dbusservice['/UpdateIndex'] = index
+            self._dbusservice['/DeviceInstance'] = 40  # muss irgendwie aktiv gesetzt werden damit es ankommt, sollte eigentlich nicht nötig sein
+
 
             # update lastupdate vars
             self._lastUpdate = time.time()
